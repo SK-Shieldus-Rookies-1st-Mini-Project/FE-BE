@@ -68,5 +68,6 @@ def login(username, password):
                 return False, "아이디 또는 비밀번호가 잘못되었습니다."
     except Exception as e:
         return False, f"로그인 중 오류: {e}"
+    
     finally:
         conn.close()
