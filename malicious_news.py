@@ -8,7 +8,7 @@ def crawl_malicious_news():
     """
     base_url = "https://m.boannews.com/html/"
     news_list = []
-    start_idx = 138466
+    start_idx = 138528
     count = 30
 
     for idx in range(start_idx, start_idx - count, -1):

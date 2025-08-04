@@ -3,7 +3,7 @@ import joblib
 
 def predict_from_csv(csv_path):
     # 모델 및 피처 목록 불러오기
-    ml_model = joblib.load('BE/best_ml_model_v2.pkl')
+    ml_model = joblib.load('BE/best_ml_model_v3.pkl')
     model_features = joblib.load('BE/feature_columns_v2.pkl')
     model_features = [col for col in model_features if col != 'repu']
 
