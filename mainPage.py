@@ -196,9 +196,11 @@ def visualize_tag_pie_and_entropy(df):
         df_temp.columns = df_temp.columns.str.replace("html_num_tags\\('", "", regex=True).str.replace("'\\)", "", regex=True)
 
         # 1. URL 엔트로피 KDE 플롯
+        st.markdown(" ")
+        st.markdown(f"##### 🔍 URL 엔트로피 값에 따른 정상/악성 사이트 분포 비교")
         plt.figure(figsize=(8, 5))
-        sns.kdeplot(data=df[df['repu'] == 'benign']['url_entropy'], label='Benign', shade=True)
-        sns.kdeplot(data=df[df['repu'] == 'malicious']['url_entropy'], label='Malicious', shade=True, color='red')
+        sns.kdeplot(data=df[df['repu'] == 'benign']['url_entropy'], label='정상 사이트', shade=True)
+        sns.kdeplot(data=df[df['repu'] == 'malicious']['url_entropy'], label='악성 사이트', shade=True, color='red')
         plt.title("URL 엔트로피 값에 따른 정상/악성 사이트 분포 비교", fontsize=16)
         plt.xlabel("URL Entropy")
         plt.ylabel("Density")
@@ -206,7 +208,14 @@ def visualize_tag_pie_and_entropy(df):
         st.pyplot(plt.gcf())  # 현재 figure를 Streamlit에 출력
         plt.clf()  # plt 초기화
 
+        st.markdown(f'🧪 URL 엔트로피란? ')
+        st.markdown('url 문자열이 얼마나 무작위적인지 나타내는 값입니다. 피싱 사이트의 URL은 무작위적인 문자와 숫자로 구성되어 엔트로피값이 높게 나타나는 경향이 있습니다.')
+        st.markdown('결과적으로, 높은 엔트로피를 가진 URL이 정상보다 악성일 확률이 더 높음을 나타냅니다.')
+
         # 2. 태그 비율 파이 차트
+        st.markdown(" ")
+        st.markdown(f"##### 🔍 악성/정상 사이트 간 태그 비율 비교")
+
         tags_to_compare = ['script', 'iframe', 'div', 'a', 'img']
         malicious_df_tags = df_temp[df_temp['repu'] == 'malicious']
         benign_df_tags = df_temp[df_temp['repu'] == 'benign']
@@ -214,31 +223,47 @@ def visualize_tag_pie_and_entropy(df):
         malicious_tag_counts = malicious_df_tags[tags_to_compare].sum()
         benign_tag_counts = benign_df_tags[tags_to_compare].sum()
 
+        # 기타 태그
         malicious_others_count = malicious_df_tags.drop(columns=['repu']).sum().sum() - malicious_tag_counts.sum()
         benign_others_count = benign_df_tags.drop(columns=['repu']).sum().sum() - benign_tag_counts.sum()
 
         malicious_final_counts = malicious_tag_counts.to_dict()
         malicious_final_counts['Others'] = malicious_others_count
-
         benign_final_counts = benign_tag_counts.to_dict()
         benign_final_counts['Others'] = benign_others_count
 
-        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
-        colors = sns.color_palette('Set3', n_colors=len(malicious_final_counts))
+        # 비율 기준 정렬
+        malicious_total = sum(malicious_final_counts.values())
+        benign_total = sum(benign_final_counts.values())
 
-        axes[0].pie(malicious_final_counts.values(), labels=malicious_final_counts.keys(),
-                    autopct='%1.1f%%', startangle=90, colors=colors, textprops={'fontsize': 12})
+        malicious_final_counts = dict(sorted(malicious_final_counts.items(), key=lambda x: x[1], reverse=True))
+        benign_final_counts = dict(sorted(benign_final_counts.items(), key=lambda x: x[1], reverse=True))
+
+        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
+        colors_mal = sns.color_palette('Set3', n_colors=len(malicious_final_counts))
+        colors_ben = sns.color_palette('Pastel1', n_colors=len(benign_final_counts))
+
+        # === 악성 사이트 차트 ===
+        mal_labels = [f"{k}: {v/malicious_total*100:.1f}%" for k, v in malicious_final_counts.items()]
+        mal_patches, _ = axes[0].pie(malicious_final_counts.values(), labels=None,
+                                    startangle=90, colors=colors_mal, textprops={'fontsize': 12})
         axes[0].set_title('악성 웹사이트의 태그 비율', fontsize=16)
         axes[0].axis('equal')
+        axes[0].legend(mal_patches, mal_labels, loc='center left', bbox_to_anchor=(1, 0.5), title="HTML 태그")
 
-        axes[1].pie(benign_final_counts.values(), labels=benign_final_counts.keys(),
-                    autopct='%1.1f%%', startangle=90, colors=colors, textprops={'fontsize': 12})
+        # === 정상 사이트 차트 ===
+        ben_labels = [f"{k}: {v/benign_total*100:.1f}%" for k, v in benign_final_counts.items()]
+        ben_patches, _ = axes[1].pie(benign_final_counts.values(), labels=None,
+                                    startangle=90, colors=colors_ben, textprops={'fontsize': 12})
         axes[1].set_title('정상 웹사이트의 태그 비율', fontsize=16)
         axes[1].axis('equal')
+        axes[1].legend(ben_patches, ben_labels, loc='center left', bbox_to_anchor=(1, 0.5), title="HTML 태그")
 
         plt.tight_layout()
         st.pyplot(fig)
         plt.clf()
+        st.markdown(f'🧪 특정 태그(<script>, <iframe>)가 과도하게 많거나 <span>, <link>, <input> 등으로 구성된 Others의 비율이 높은 경우 악성 사이트일 가능성이 높다고 판단할 수 있습니다.')
+        
 
     except Exception as e:
         st.error(f"시각화 중 오류가 발생했습니다: {e}")
@@ -246,7 +271,10 @@ def visualize_tag_pie_and_entropy(df):
 
 def draw_radar_chart(train_csv_path, user_csv_path, features):
     try:
-        # === 1. TrainData에서 benign 평균 구하기 ===
+        st.markdown(" ")
+        st.markdown(f"##### 🔍 입력 URL과 정상 및 악성 URL의 평균값을 비교하는 레이더 차트")
+
+        # === 1. TrainData에서 benign, malicious 평균 구하기 ===
         df_train = pd.read_csv(train_csv_path)
         df_train.columns = df_train.columns.str.replace(r"html_num_tags\('", "", regex=True).str.replace(r"'\)", "", regex=True)
         df_train = df_train.dropna(subset=features + ['repu'])
@@ -257,6 +285,7 @@ def draw_radar_chart(train_csv_path, user_csv_path, features):
         df_train_scaled['repu'] = df_train['repu'].values
 
         mean_benign = df_train_scaled[df_train_scaled['repu'] == 'benign'][features].mean().values
+        mean_malicious = df_train_scaled[df_train_scaled['repu'] == 'malicious'][features].mean().values
 
         # === 2. 사용자 URL Feature 가져오기 ===
         df_user = pd.read_csv(user_csv_path)
@@ -273,19 +302,32 @@ def draw_radar_chart(train_csv_path, user_csv_path, features):
 
         user_values = np.concatenate((user_values, [user_values[0]]))
         mean_benign = np.concatenate((mean_benign, [mean_benign[0]]))
+        mean_malicious = np.concatenate((mean_malicious, [mean_malicious[0]]))
 
         fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-        ax.plot(angles, user_values, label='사용자 URL', color='red')
-        ax.plot(angles, mean_benign, label='정상 평균 (benign)', color='blue')
-        ax.fill(angles, user_values, color='red', alpha=0.25)
+        ax.plot(angles, user_values, label='사용자 URL', color='green')
+        ax.plot(angles, mean_benign, label='정상 평균', color='blue')
+        ax.plot(angles, mean_malicious, label='악성 평균', color='red')
+
+        ax.fill(angles, user_values, color='green', alpha=0.25)
         ax.fill(angles, mean_benign, color='blue', alpha=0.15)
+        ax.fill(angles, mean_malicious, color='red', alpha=0.15)
+
         ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(labels)
-        ax.set_title('입력 URL vs 정상 평균 Feature 비교', size=15)
+        ax.set_xticklabels(labels, fontsize=9)
+        ax.set_title('입력 URL vs 정상/악성 평균 Feature 비교', size=15)
         ax.legend(loc='upper right')
+
         st.pyplot(fig)
+
+        st.markdown(
+            f'🧪 정상 URL과 악성 URL 평균 패턴과의 차이를 비교하여, '
+            '현저히 다른 이상치(Outliers)가 관측될 경우 이를 악성 URL로 분류하는 근거가 됩니다.'
+        )
+
     except Exception as e:
         st.error(f"차트 생성 중 오류 발생: {e}")
+
 
 def compare_benign_malicious_chart(train_csv_path, features):
     try:
@@ -304,6 +346,8 @@ def compare_benign_malicious_chart(train_csv_path, features):
         print(f'mean_benign: {df_train_scaled[df_train_scaled['repu'] == 'benign'][features]}')
         print(f'mean_malicious: {df_train_scaled[df_train_scaled['repu'] == 'malicious'][features]}')
 
+        st.markdown(" ")
+        st.markdown(f"##### 🔍 악성 사이트의 평균과 정상 사이트의 평균을 비교한 레이더 차트")
         # === 3. 레이더 차트 준비 ===
         labels = features
         num_vars = len(labels)
@@ -314,15 +358,18 @@ def compare_benign_malicious_chart(train_csv_path, features):
         mean_benign = np.concatenate((mean_benign, [mean_benign[0]]))
 
         fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
-        ax.plot(angles, mean_malicious, label='악성 평균 (malicious)', color='red')
-        ax.plot(angles, mean_benign, label='정상 평균 (benign)', color='blue')
+        ax.plot(angles, mean_malicious, label='악성 사이트 평균', color='red')
+        ax.plot(angles, mean_benign, label='정상 사이트 평균', color='blue')
         ax.fill(angles, mean_malicious, color='red', alpha=0.25)
         ax.fill(angles, mean_benign, color='blue', alpha=0.15)
         ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(labels)
+        ax.set_xticklabels(labels, fontsize=9)
         ax.set_title('악성 평균 vs 정상 평균 Feature 비교', size=15)
         ax.legend(loc='upper right')
         st.pyplot(fig)
+        
+        st.markdown(f'🧪 악성 사이트는 url_entropy, 도메인 길이, 호스트 길이, 도메인 토큰 길이 등의 값이 높아 전반적으로 URL이 복잡하고 무작위적인 구조를 가지는 반면, 정상 사이트는 www로 시작할 가능성이 높고, 비교적 정제된 URL 구조를 갖는 경향이 있습니다.')
+    
     except Exception as e:
         st.error(f"차트 생성 중 오류 발생: {e}")
 
@@ -400,32 +447,72 @@ def main_page():
                         matched_row = df
 
                         if not matched_row.empty:
-                            # 기존 차트 코드 재사용
-                            html_columns = [col for col in df.columns if "html_num_tags" in col]
+                            st.markdown(" ")
+                            st.markdown(f"##### 🔍 HTML 태그 별 파이차트 분석")
+                            # 1. HTML 태그 파이차트
+                            html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
                             tag_counts = matched_row.iloc[0][html_columns]
                             tag_counts = tag_counts[tag_counts > 0]
-
+                                    
                             if not tag_counts.empty:
+                                # 정렬: 값 기준 내림차순
+                                tag_counts = tag_counts.sort_values(ascending=False)
+                                        
+                                # 추출된 태그명 (예: html_num_tags('div') → div)
+                                tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+
                                 fig1, ax1 = plt.subplots(figsize=(8, 8))
-                                ax1.pie(tag_counts, labels=tag_counts.index.str.extract(r"\'(\w+)\'")[0], autopct='%1.1f%%')
+                                        
+                                # 색상 자동 생성
+                                colors = plt.cm.Set3(range(len(tag_counts)))
+
+                                # 파이차트 그리기 (autopct 없이)
+                                wedges, _ = ax1.pie(tag_counts, labels=None, startangle=90, colors=colors)
+
+                                # 범례 라벨 생성: "태그명: 퍼센트%"
+                                tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+                                legend_labels = [f"{tag}: {pct:.1f}%" for tag, pct in zip(tag_labels, tag_counts / tag_counts.sum() * 100)]
+
+                                # 정렬된 순서로 범례 출력
+                                ax1.legend(wedges, legend_labels, title="HTML 태그", loc="center left", bbox_to_anchor=(1, 0.5))
+
                                 ax1.set_title("HTML 태그 비율")
                                 st.pyplot(fig1)
+                                st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
 
+                            else:
+                                st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
+                                
+
+                            # 2. URL 특성 바차트
+                            st.markdown(f"##### 🔍 URL 값 비교 막대그래프 ")
                             url_columns = [
                                 'url_len', 'url_path_len', 'url_filename_len',
                                 'url_domain_len', 'url_hostname_len', 'url_entropy',
                                 'url_num_dots', 'url_num_slashes', 'url_num_equals'
                             ]
-
+                                    
+                            url_columns_mean = [
+                                'URL 전체 길이', 'URL 경로 길이', 'URL 파일 이름의 길이', 'http://와 www.을 제외한 도메인 이름의 길이',
+                                '호스트 이름의 길이', 'url 엔트로피 (복잡도)', 'URL에 포함된 점(.)의 개수', 'URL에 포함된 슬래시(/)의 개수',
+                                'URL에 포함된 등호(=)의 개수'
+                            ]
                             row_data = matched_row.iloc[0][url_columns].reset_index()
                             row_data.columns = ['Feature', 'Value']
                             fig2, ax2 = plt.subplots(figsize=(10, 6))
                             sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
                             ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
-                            ax2.set_title("URL 관련 값 비교")
+                            ax2.set_title("URL에 관련된 값 비교")
                             plt.tight_layout()
                             st.pyplot(fig2)
 
+                            for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
+                                st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
+                            
+                            st.markdown(" ")
+                            st.markdown(f'🧪 악성 URL은 정상적인 URL과 유사하지만 미묘하게 다른 도메인명, 복잡한 경로, 특정 키워드 등을 통해 악성 여부를 판단합니다. ')
+                            st.markdown(" ")
+                            
                             draw_radar_chart(train_csv, user_csv, features)
                             compare_benign_malicious_chart(train_csv, features)
 
@@ -474,39 +561,73 @@ def main_page():
                                 matched_row = df[df['url'] == url]
 
                                 if not matched_row.empty:
+                                    st.markdown(" ")
+                                    st.markdown(f"##### 🔍 HTML 태그 별 파이차트 분석")
                                     # 1. HTML 태그 파이차트
                                     html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
                                     tag_counts = matched_row.iloc[0][html_columns]
                                     tag_counts = tag_counts[tag_counts > 0]
-
+                                    
                                     if not tag_counts.empty:
+                                        # 정렬: 값 기준 내림차순
+                                        tag_counts = tag_counts.sort_values(ascending=False)
+                                        
+                                        # 추출된 태그명 (예: html_num_tags('div') → div)
+                                        tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+
                                         fig1, ax1 = plt.subplots(figsize=(8, 8))
-                                        ax1.pie(tag_counts, labels=tag_counts.index.str.extract(r"\'(\w+)\'")[0], autopct='%1.1f%%')
+                                        
+                                        # 색상 자동 생성
+                                        colors = plt.cm.Set3(range(len(tag_counts)))
+
+                                        # 파이차트 그리기 (autopct 없이)
+                                        wedges, _ = ax1.pie(tag_counts, labels=None, startangle=90, colors=colors)
+
+                                        # 범례 라벨 생성: "태그명: 퍼센트%"
+                                        tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+                                        legend_labels = [f"{tag}: {pct:.1f}%" for tag, pct in zip(tag_labels, tag_counts / tag_counts.sum() * 100)]
+
+                                        # 정렬된 순서로 범례 출력
+                                        ax1.legend(wedges, legend_labels, title="HTML 태그", loc="center left", bbox_to_anchor=(1, 0.5))
+
                                         ax1.set_title("HTML 태그 비율")
                                         st.pyplot(fig1)
+                                        st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
+
                                     else:
                                         st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
 
                                     # 2. URL 특성 바차트
+                                    st.markdown(f"##### 🔍 URL 값 비교 막대그래프 ")
                                     url_columns = [
                                         'url_len', 'url_path_len', 'url_filename_len',
                                         'url_domain_len', 'url_hostname_len', 'url_entropy',
                                         'url_num_dots', 'url_num_slashes', 'url_num_equals'
+                                    ]
+                                    
+                                    url_columns_mean = [
+                                        'URL 전체 길이', 'URL 경로 길이', 'URL 파일 이름의 길이', 'http://와 www.을 제외한 도메인 이름의 길이',
+                                        '호스트 이름의 길이', 'url 엔트로피 (복잡도)', 'URL에 포함된 점(.)의 개수', 'URL에 포함된 슬래시(/)의 개수',
+                                        'URL에 포함된 등호(=)의 개수'
                                     ]
                                     row_data = matched_row.iloc[0][url_columns].reset_index()
                                     row_data.columns = ['Feature', 'Value']
                                     fig2, ax2 = plt.subplots(figsize=(10, 6))
                                     sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
                                     ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
-                                    ax2.set_title("URL 관련 값 비교")
+                                    ax2.set_title("URL에 관련된 값 비교")
                                     plt.tight_layout()
                                     st.pyplot(fig2)
 
+                                    for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
+                                        st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
+                                    st.markdown(" ")
+                                    st.markdown(f'🧪 악성 URL은 정상적인 URL과 유사하지만 미묘하게 다른 도메인명, 복잡한 경로, 특정 키워드 등을 통해 악성 여부를 판단합니다. ')
+                                    st.markdown(" ")
+                                    
                                     # 3. 레이더 차트
                                     draw_radar_chart(train_csv, user_csv, features)
 
-                                    # 4. 평균 비교 차트
-                                    compare_benign_malicious_chart(train_csv, features)
 
                                 else:
                                     st.info("⚠️ 해당 URL에 대한 데이터가 CSV에서 누락되었습니다.")
@@ -517,6 +638,8 @@ def main_page():
 
                 
             st.subheader("📊 악성 vs 정상 사이트 분석 대시보드")
+            # 4. 평균 비교 차트
+            compare_benign_malicious_chart(train_csv, features)
             visualize_tag_pie_and_entropy(dftd)
                 
 
