@@ -420,113 +420,125 @@ def url_analysis_page(train_csv, user_csv, features):
     left, center, right = st.columns([2, 4, 2])
     with center:
         user_url = st.text_input("🔎 악성 여부를 확인할 URL을 입력하세요", "")
+        search_button = st.button("검색")
 
-        if user_url:
+        # 세션 상태 초기화
+        if 'result' not in st.session_state:
+            st.session_state.result = None
+        if 'prob' not in st.session_state:
+            st.session_state.prob = None
+        if 'show_charts' not in st.session_state:
+            st.session_state.show_charts = False
+        
+        # '검색' 버튼 클릭 시 URL 분석 및 세션 상태에 결과 저장
+        if search_button:
+            # URL 분석 로직
             parsing_html.get_csv(user_url)
-            result, prob = predict_module.predict_from_csv(csv_path='extract_feature.csv')
+            st.session_state.result, st.session_state.prob = predict_module.predict_from_csv(csv_path='extract_feature.csv')
+            st.session_state.user_url = user_url
+            
+            # '검색' 버튼을 누르면 차트 숨기기 상태로 초기화
+            st.session_state.show_charts = False
+            
+            # DB에 데이터 저장
+            # save_data(user_url, st.session_state.result) # 예제에서는 주석 처리
 
-            if result is None:
-                    st.warning("🤔 이 URL은 아직 분석되지 않았습니다.")
-            elif result == 1:
-                    st.success(f"✅ {user_url} 사이트는 **정상 사이트입니다.**\n확률: {prob:.2f}%")
-            elif result == 0:
-                    st.error(f"🚨 {user_url} 사이트는 **악성 사이트입니다.**\n확률: {prob:.2f}%")
+        # 결과가 존재하면 표시
+        if st.session_state.result is not None:
+            if st.session_state.result == 1:
+                st.success(f"### ✅ {st.session_state.user_url} 사이트는 **정상 사이트입니다.**\n###확률: {st.session_state.prob:.2f}%")
+            elif st.session_state.result == 0:
+                st.error(f"### 🚨 {st.session_state.user_url} 사이트는 **악성 사이트입니다.**\n###확률: {st.session_state.prob:.2f}%")
             else:
-                    st.info(f"⚠️ 분류되지 않은 결과값: {result}")
+                st.info(f"⚠️ 분류되지 않은 결과값: {st.session_state.result}")
 
-            save_data(user_url, result)
-
-                # ✅ 차트 토글을 위한 상태 초기화
-            if 'show_charts' not in st.session_state:
-                    st.session_state.show_charts = False
-
-                # ✅ 토글 버튼
+            # ✅ 차트 토글 버튼은 결과가 나온 후에 표시
             chart_button = st.button("📈 차트 보기/숨기기")
             if chart_button:
-                    st.session_state.show_charts = not st.session_state.show_charts
+                st.session_state.show_charts = not st.session_state.show_charts
 
-            if st.session_state.show_charts:
-                    try:
-                        st.markdown("### 🧠 해당 URL 분석 시각화")
-                        df = pd.read_csv('extract_feature.csv')
-                        df['url'] = user_url
-                        matched_row = df
+        # ✅ 차트 상태에 따라 시각화 표시
+        if st.session_state.show_charts and st.session_state.result is not None:
+            try:
+                st.markdown("### 🧠 해당 URL 분석 시각화")
+                df = pd.read_csv('extract_feature.csv')
+                df['url'] = st.session_state.user_url
+                matched_row = df
 
-                        if not matched_row.empty:
-                            st.markdown(" ")
-                            st.markdown(f"##### 🔍 HTML 태그 별 파이차트 분석")
-                            # 1. HTML 태그 파이차트
-                            html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
-                            tag_counts = matched_row.iloc[0][html_columns]
-                            tag_counts = pd.to_numeric(tag_counts, errors='coerce')  # 숫자형 변환
-                            tag_counts = tag_counts[tag_counts > 0]
-                                    
-                            if not tag_counts.empty:
-                                # 정렬: 값 기준 내림차순
-                                tag_counts = tag_counts.sort_values(ascending=False)
-                                        
-                                # 추출된 태그명 (예: html_num_tags('div') → div)
-                                tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+                if not matched_row.empty:
+                    st.markdown(" ")
+                    st.markdown(f"##### 🔍 HTML 태그 별 파이차트 분석")
+                    # 1. HTML 태그 파이차트
+                    html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
+                    tag_counts = matched_row.iloc[0][html_columns]
+                    tag_counts = pd.to_numeric(tag_counts, errors='coerce')  # 숫자형 변환
+                    tag_counts = tag_counts[tag_counts > 0]
+                                            
+                    if not tag_counts.empty:
+                        # 정렬: 값 기준 내림차순
+                        tag_counts = tag_counts.sort_values(ascending=False)
+                                                
+                        # 추출된 태그명 (예: html_num_tags('div') → div)
+                        tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
 
-                                fig1, ax1 = plt.subplots(figsize=(8, 8))
-                                        
-                                # 색상 자동 생성
-                                colors = plt.cm.Set3(range(len(tag_counts)))
+                        fig1, ax1 = plt.subplots(figsize=(8, 8))
+                                                
+                        # 색상 자동 생성
+                        colors = plt.cm.Set3(range(len(tag_counts)))
 
-                                # 파이차트 그리기 (autopct 없이)
-                                wedges, _ = ax1.pie(tag_counts, labels=None, startangle=90, colors=colors)
+                        # 파이차트 그리기 (autopct 없이)
+                        wedges, _ = ax1.pie(tag_counts, labels=None, startangle=90, colors=colors)
 
-                                # 범례 라벨 생성: "태그명: 퍼센트%"
-                                tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
-                                legend_labels = [f"{tag}: {pct:.1f}%" for tag, pct in zip(tag_labels, tag_counts / tag_counts.sum() * 100)]
+                        # 범례 라벨 생성: "태그명: 퍼센트%"
+                        tag_labels = tag_counts.index.str.extract(r"\'(\w+)\'")[0]
+                        legend_labels = [f"{tag}: {pct:.1f}%" for tag, pct in zip(tag_labels, tag_counts / tag_counts.sum() * 100)]
 
-                                # 정렬된 순서로 범례 출력
-                                ax1.legend(wedges, legend_labels, title="HTML 태그", loc="center left", bbox_to_anchor=(1, 0.5))
+                        # 정렬된 순서로 범례 출력
+                        ax1.legend(wedges, legend_labels, title="HTML 태그", loc="center left", bbox_to_anchor=(1, 0.5))
 
-                                ax1.set_title("HTML 태그 비율")
-                                st.pyplot(fig1)
-                                st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
+                        ax1.set_title("HTML 태그 비율")
+                        st.pyplot(fig1)
+                        st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
 
-                            else:
-                                st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
-                                
+                    else:
+                        st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
+                                                
+                    # 2. URL 특성 바차트
+                    st.markdown(f"##### 🔍 URL 값 비교 막대그래프 ")
+                    url_columns = [
+                        'url_len', 'url_path_len', 'url_filename_len',
+                        'url_domain_len', 'url_hostname_len', 'url_entropy',
+                        'url_num_dots', 'url_num_slashes', 'url_num_equals'
+                    ]
+                                                    
+                    url_columns_mean = [
+                        'URL 전체 길이', 'URL 경로 길이', 'URL 파일 이름의 길이', 'http://와 www.을 제외한 도메인 이름의 길이',
+                        '호스트 이름의 길이', 'url 엔트로피 (복잡도)', 'URL에 포함된 점(.)의 개수', 'URL에 포함된 슬래시(/)의 개수',
+                        'URL에 포함된 등호(=)의 개수'
+                    ]
+                    row_data = matched_row.iloc[0][url_columns].reset_index()
+                    row_data.columns = ['Feature', 'Value']
+                    fig2, ax2 = plt.subplots(figsize=(10, 6))
+                    sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
+                    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
+                    ax2.set_title("URL에 관련된 값 비교")
+                    plt.tight_layout()
+                    
+                    st.pyplot(fig2)
+                    for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
+                        st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
+                    
+                    st.markdown(" ")
+                    st.markdown(f'🧪 악성 URL은 정상적인 URL과 유사하지만 미묘하게 다른 도메인명, 복잡한 경로, 특정 키워드 등을 통해 악성 여부를 판단합니다. ')
+                    st.markdown(" ")
+                    
+                    #draw_radar_chart(st.session_state.user_url, features)
 
-                            # 2. URL 특성 바차트
-                            st.markdown(f"##### 🔍 URL 값 비교 막대그래프 ")
-                            url_columns = [
-                                'url_len', 'url_path_len', 'url_filename_len',
-                                'url_domain_len', 'url_hostname_len', 'url_entropy',
-                                'url_num_dots', 'url_num_slashes', 'url_num_equals'
-                            ]
-                                    
-                            url_columns_mean = [
-                                'URL 전체 길이', 'URL 경로 길이', 'URL 파일 이름의 길이', 'http://와 www.을 제외한 도메인 이름의 길이',
-                                '호스트 이름의 길이', 'url 엔트로피 (복잡도)', 'URL에 포함된 점(.)의 개수', 'URL에 포함된 슬래시(/)의 개수',
-                                'URL에 포함된 등호(=)의 개수'
-                            ]
-                            row_data = matched_row.iloc[0][url_columns].reset_index()
-                            row_data.columns = ['Feature', 'Value']
-                            fig2, ax2 = plt.subplots(figsize=(10, 6))
-                            sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
-                            ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
-                            ax2.set_title("URL에 관련된 값 비교")
-                            plt.tight_layout()
-                            
-                            st.pyplot(fig2)
-                            for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
-                                st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
-                            
-                            st.markdown(" ")
-                            st.markdown(f'🧪 악성 URL은 정상적인 URL과 유사하지만 미묘하게 다른 도메인명, 복잡한 경로, 특정 키워드 등을 통해 악성 여부를 판단합니다. ')
-                            st.markdown(" ")
-                            
-                            draw_radar_chart(user_url, features)
+                else:
+                    st.info("⚠️ 입력한 URL에 대한 상세 데이터가 CSV 파일에 없습니다.")
 
-                        else:
-                            st.info("⚠️ 입력한 URL에 대한 상세 데이터가 CSV 파일에 없습니다.")
-
-                    except Exception as e:
-                        st.warning(f"⚠️ 시각화 중 오류 발생: {e}")
+            except Exception as e:
+                st.warning(f"⚠️ 시각화 중 오류 발생: {e}")
                     
 
 def history_page(train_csv, user_csv, features):
