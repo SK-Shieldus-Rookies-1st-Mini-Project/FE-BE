@@ -14,6 +14,45 @@ from parsing_html import getHtml, to_csv, get_csv
 import predict_module
 from predict_module import predict_from_csv
 from sqlalchemy import create_engine
+import login
+
+#st.set_page_config(page_title="악성 URL 판별 시스템", layout="wide")
+
+def login_page():
+    st.title("🔐 악성 URL 판별 시스템")
+    tab1, tab2 = st.tabs(["🔓 로그인", "📝 회원가입"])
+
+    with tab1:
+        st.subheader("로그인")
+        # ✅ 가운데 정렬을 위해 columns 사용
+        left, center, right = st.columns([2, 3, 2])
+        with center:
+            username = st.text_input("아이디", key="login_id")
+            password = st.text_input("비밀번호", type="password", key="login_pw")
+            login_clicked = st.button("로그인")
+            if login_clicked:
+                success, msg = login.login(username, password)
+                if success:
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = msg.split("님")[0]
+                    st.session_state.page = "main"
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+    with tab2:
+        st.subheader("회원가입")
+        left, center, right = st.columns([2, 3, 2])
+        with center:
+            name = st.text_input("이름", key="signup_name")
+            new_username = st.text_input("아이디", key="signup_id")
+            new_password = st.text_input("비밀번호", type="password", key="signup_pw")
+            if st.button("회원가입"):
+                success, msg = login.signup(name, new_username, new_password)
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
 
 # 한글폰트 path 설정
@@ -21,13 +60,57 @@ font_path = 'C:\\windows\\Fonts\\malgun.ttf'
 font_prop = fm.FontProperties(fname=font_path).get_name()
 matplotlib.rc('font', family=font_prop)
 
+def create_table_if_not_exists():
+    try:
+        conn = pymysql.connect(
+            host='localhost',
+            port=3306,
+            user='python',
+            password='python',
+            db='python_db',
+            charset='utf8mb4'
+        )
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS feature_and_result (
+                    username VARCHAR(100),
+                    url_len INT, url_num_hyphens_dom INT, url_num_dom_token INT,
+                    url_path_len INT, url_filename_len INT, url_longest_dom_token_len INT,
+                    url_average_dom_token_len FLOAT, url_domain_len INT, url_hostname_len INT,
+                    url_num_dots INT, url_num_underscores INT, url_num_equals INT,
+                    url_num_slashes INT, url_num_dash INT, url_num_semicolon INT,
+                    url_num_at INT, url_num_percent INT, url_num_plus INT,
+                    url_query_len INT, url_num_query_para INT, url_ip_present INT,
+                    url_entropy FLOAT, url_count_consonants INT, url_num_digits INT,
+                    url_port INT, url_has_https INT, url_has_ip_address INT,
+                    url_num_subdomains INT, url_has_suspicious_words INT,
+                    url_length_category INT, url_has_port_in_url INT,
+                    url_num_special_chars INT, url_num_params INT, url_num_fragments INT,
+                    url_starts_with_www INT, url_is_shortened INT, url_has_email INT,
+                    `html_num_tags('iframe')` INT, `html_num_tags('script')` INT,
+                    `html_num_tags('embed')` INT, `html_num_tags('object')` INT,
+                    `html_num_tags('div')` INT, `html_num_tags('head')` INT,
+                    `html_num_tags('body')` INT, `html_num_tags('form')` INT,
+                    `html_num_tags('a')` INT, `html_num_tags('small')` INT,
+                    `html_num_tags('span')` INT, `html_num_tags('input')` INT,
+                    `html_num_tags('applet')` INT, `html_num_tags('img')` INT,
+                    `html_num_tags('video')` INT, `html_num_tags('audio')` INT,
+                    url TEXT, result INT
+                )
+            """)
+            conn.commit()
+    except Exception as e:
+        print(f"[DB 오류] 테이블 생성 실패: {e}")
+    finally:
+        conn.close()
+
 #DB에 검사한 url의 이름과 feature, result를 저장
-def save_data(user_url,result):
-     # MariaDB 연결 엔진 생성
+def save_data(user_url, result):
+    from sqlalchemy import create_engine
+
     engine = create_engine('mysql+pymysql://python:python@localhost:3306/python_db')
-    
-    # pymysql을 사용하여 DB 연결
     connection = None
+
     try:
         connection = pymysql.connect(
             host='localhost',
@@ -37,26 +120,22 @@ def save_data(user_url,result):
             passwd='python',
             charset='utf8'
         )
-        
+
         with connection.cursor() as cursor:
-            # 1. URL이 이미 존재하는지 조회
-            sql_check = 'SELECT url FROM feature_and_result WHERE url=%s'
-            cursor.execute(sql_check, (user_url,))
-            
-            # 조회 결과가 있으면 (이미 데이터가 존재하면)
+            sql_check = 'SELECT url FROM feature_and_result WHERE url=%s AND username=%s'
+            cursor.execute(sql_check, (user_url, st.session_state.user_name))
             if cursor.fetchone():
                 print(f"'{user_url}'은(는) 이미 DB에 존재합니다. 새로운 데이터를 저장하지 않습니다.")
-                return # 함수 종료
-            
-        # 2. URL이 존재하지 않으면 데이터프레임 생성 및 저장
+                return
+
         df = pd.read_csv('extract_feature.csv')
         df['url'] = user_url
         df['result'] = result
+        df['username'] = st.session_state.user_name  # ✅ 사용자 이름 컬럼 추가
 
-        # 3. to_sql() 메서드를 사용하여 DB에 저장
         df.to_sql(name='feature_and_result', con=engine, if_exists='append', index=False)
         print("데이터프레임이 DB에 성공적으로 저장되었습니다.")
-        
+
     except Exception as e:
         print(f"데이터베이스 작업 중 오류 발생: {e}")
         if connection:
@@ -95,9 +174,16 @@ def load_from_DB():
             db='python_db',
             charset='utf8mb4'
         )
-        query = "SELECT url, url_len, url_entropy, result FROM feature_and_result"
-        df = pd.read_sql(query, conn)
+
+        query = """
+            SELECT url, url_len, url_entropy, result
+            FROM feature_and_result
+            WHERE username = %s
+        """
+
+        df = pd.read_sql(query, conn, params=(st.session_state.user_name,))
         return df
+
     except Exception as e:
         st.error(f"❌ 전체 데이터 로딩 오류: {e}")
         return pd.DataFrame()
@@ -240,12 +326,24 @@ def compare_benign_malicious_chart(train_csv_path, features):
     except Exception as e:
         st.error(f"차트 생성 중 오류 발생: {e}")
 
-# 메인 실행 함수
-def main():
 
-    
+
+# 메인 실행 함수
+def main_page():
+    create_table_if_not_exists()
+
+
     st.set_page_config(page_title="온라인 보안 뉴스", layout="wide")
     st.sidebar.title("지키링 네비게이션")
+
+    # ✅ 접속자 이름과 로그아웃 버튼 표시
+    with st.sidebar:
+        st.markdown(f"👤 **{st.session_state.user_name} 님**")
+        if st.button("🚪 로그아웃"):
+            st.session_state.logged_in = False
+            st.session_state.page = "login"
+            st.rerun()
+
     page = st.sidebar.selectbox("페이지를 선택하세요", ["메인", "온라인 보안 뉴스"])
 
     # 파일 경로
@@ -270,82 +368,154 @@ def main():
         left, center, right = st.columns([2, 4, 2])
         with center:
             user_url = st.text_input("🔎 악성 여부를 확인할 URL을 입력하세요", "")
-            if user_url:
 
+            if user_url:
                 parsing_html.get_csv(user_url)
                 result, prob = predict_module.predict_from_csv(csv_path='extract_feature.csv')
 
                 if result is None:
                     st.warning("🤔 이 URL은 아직 분석되지 않았습니다.")
-                    print("예측 결과:", result)
                 elif result == 1:
                     st.success(f"✅ {user_url} 사이트는 **정상 사이트입니다.**\n확률: {prob:.2f}%")
-                    
                 elif result == -1:
                     st.error(f"🚨 {user_url} 사이트는 **악성 사이트입니다.**\n확률: {prob:.2f}%")
                 else:
                     st.info(f"⚠️ 분류되지 않은 결과값: {result}")
 
-                try:
-                    st.markdown("### 🧠 해당 URL 분석 시각화")
-                    df = pd.read_csv('extract_feature.csv')
+                save_data(user_url, result)
 
-                    # 사용자가 입력한 url과 csv 파일의 'url'컬럼 값과 일치하는 행만 필터링, 
-                    # csv 파일의 컬럼 명에 맞게 수정
-                    df['url'] = user_url
-                    matched_row = df 
-                    print(df)
-                    save_data(user_url,result) 
+                # ✅ 차트 토글을 위한 상태 초기화
+                if 'show_charts' not in st.session_state:
+                    st.session_state.show_charts = False
 
-                    if not matched_row.empty:
-                        # HTML 태그 관련 시각화
-                        html_columns = [col for col in df.columns if "html_num_tags" in col]
-                        tag_counts = matched_row.iloc[0][html_columns]
-                        tag_counts = tag_counts[tag_counts > 0]
+                # ✅ 토글 버튼
+                chart_button = st.button("📈 차트 보기/숨기기")
+                if chart_button:
+                    st.session_state.show_charts = not st.session_state.show_charts
 
-                        if not tag_counts.empty:
-                            fig1, ax1 = plt.subplots(figsize=(8, 8))
-                            ax1.pie(tag_counts, labels=tag_counts.index.str.extract(r"\'(\w+)\'")[0], autopct='%1.1f%%')
-                            ax1.set_title("HTML 태그 비율")
-                            st.pyplot(fig1)
+                if st.session_state.show_charts:
+                    try:
+                        st.markdown("### 🧠 해당 URL 분석 시각화")
+                        df = pd.read_csv('extract_feature.csv')
+                        df['url'] = user_url
+                        matched_row = df
+
+                        if not matched_row.empty:
+                            # 기존 차트 코드 재사용
+                            html_columns = [col for col in df.columns if "html_num_tags" in col]
+                            tag_counts = matched_row.iloc[0][html_columns]
+                            tag_counts = tag_counts[tag_counts > 0]
+
+                            if not tag_counts.empty:
+                                fig1, ax1 = plt.subplots(figsize=(8, 8))
+                                ax1.pie(tag_counts, labels=tag_counts.index.str.extract(r"\'(\w+)\'")[0], autopct='%1.1f%%')
+                                ax1.set_title("HTML 태그 비율")
+                                st.pyplot(fig1)
+
+                            url_columns = [
+                                'url_len', 'url_path_len', 'url_filename_len',
+                                'url_domain_len', 'url_hostname_len', 'url_entropy',
+                                'url_num_dots', 'url_num_slashes', 'url_num_equals'
+                            ]
+
+                            row_data = matched_row.iloc[0][url_columns].reset_index()
+                            row_data.columns = ['Feature', 'Value']
+                            fig2, ax2 = plt.subplots(figsize=(10, 6))
+                            sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
+                            ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
+                            ax2.set_title("URL 관련 값 비교")
+                            plt.tight_layout()
+                            st.pyplot(fig2)
+
+                            draw_radar_chart(train_csv, user_csv, features)
+                            compare_benign_malicious_chart(train_csv, features)
+
                         else:
-                            st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
+                            st.info("⚠️ 입력한 URL에 대한 상세 데이터가 CSV 파일에 없습니다.")
 
-                        # URL 관련 컬럼 시각화
-                        url_columns = [
-                            'url_len', 'url_path_len', 'url_filename_len',
-                            'url_domain_len', 'url_hostname_len', 'url_entropy',
-                            'url_num_dots', 'url_num_slashes', 'url_num_equals'
-                        ]
+                    except Exception as e:
+                        st.warning(f"⚠️ 시각화 중 오류 발생: {e}")
 
-                        row_data = matched_row.iloc[0][url_columns].reset_index()
-                        row_data.columns = ['Feature', 'Value']
-
-                        fig2, ax2 = plt.subplots(figsize=(10, 6))
-                        sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
-                        ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
-                        ax2.set_title("URL 관련 값 비교")
-                        plt.tight_layout()
-                        st.pyplot(fig2)
-
-                        draw_radar_chart(train_csv, user_csv, features)
-                        compare_benign_malicious_chart(train_csv, features)
-
-                    else:
-                        st.info("⚠️ 입력한 URL에 대한 상세 데이터가 CSV 파일에 없습니다.")
-
-                except Exception as e:
-                    st.warning(f"⚠️ 시각화 중 오류 발생: {e}")
 
         with center:
-            # 판별 이력 테이블
             st.subheader("📊 URL 판별 이력")
             df_history = load_from_DB()
+
+            # 조회 토글 상태 저장용
+            if 'toggle_states' not in st.session_state:
+                st.session_state.toggle_states = {}
+
             if not df_history.empty:
                 df_history['result'] = df_history['result'].map({1: '정상', -1: '악성'}).fillna('미분류')
-                st.dataframe(df_history)
+
+                for i, row in df_history.iterrows():
+                    url = row['url']
+                    if url not in st.session_state.toggle_states:
+                        st.session_state.toggle_states[url] = False
+
+                    with st.container():
+                        cols = st.columns([4, 1, 1])
+                        cols[0].markdown(f"**🔗 {url}**")
+                        cols[1].markdown(f"{row['result']}")
+                        
+                        if cols[2].button("조회", key=f"view_{i}"):
+                            # 토글 상태 변경
+                            st.session_state.toggle_states[url] = not st.session_state.toggle_states[url]
+
+                        # 토글이 True일 때만 표시
+                        if st.session_state.toggle_states[url]:
+                            try:
+                                st.markdown(f"##### 📌 상세 정보: {url}")
+                                st.markdown(f"- 🔸 URL 길이 (`url_len`): `{row['url_len']}`")
+                                st.markdown(f"- 🔸 URL 엔트로피 (`url_entropy`): `{row['url_entropy']:.4f}`")
+                                st.markdown(f"- 🔸 판별 결과: `{row['result']}`")
+
+                                df = pd.read_csv("extract_feature.csv")
+                                df['url'] = url
+                                matched_row = df[df['url'] == url]
+
+                                if not matched_row.empty:
+                                    # 1. HTML 태그 파이차트
+                                    html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
+                                    tag_counts = matched_row.iloc[0][html_columns]
+                                    tag_counts = tag_counts[tag_counts > 0]
+
+                                    if not tag_counts.empty:
+                                        fig1, ax1 = plt.subplots(figsize=(8, 8))
+                                        ax1.pie(tag_counts, labels=tag_counts.index.str.extract(r"\'(\w+)\'")[0], autopct='%1.1f%%')
+                                        ax1.set_title("HTML 태그 비율")
+                                        st.pyplot(fig1)
+                                    else:
+                                        st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
+
+                                    # 2. URL 특성 바차트
+                                    url_columns = [
+                                        'url_len', 'url_path_len', 'url_filename_len',
+                                        'url_domain_len', 'url_hostname_len', 'url_entropy',
+                                        'url_num_dots', 'url_num_slashes', 'url_num_equals'
+                                    ]
+                                    row_data = matched_row.iloc[0][url_columns].reset_index()
+                                    row_data.columns = ['Feature', 'Value']
+                                    fig2, ax2 = plt.subplots(figsize=(10, 6))
+                                    sns.barplot(data=row_data, x='Feature', y='Value', palette='Set2', ax=ax2)
+                                    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
+                                    ax2.set_title("URL 관련 값 비교")
+                                    plt.tight_layout()
+                                    st.pyplot(fig2)
+
+                                    # 3. 레이더 차트
+                                    draw_radar_chart(train_csv, user_csv, features)
+
+                                    # 4. 평균 비교 차트
+                                    compare_benign_malicious_chart(train_csv, features)
+
+                                else:
+                                    st.info("⚠️ 해당 URL에 대한 데이터가 CSV에서 누락되었습니다.")
+                            except Exception as e:
+                                st.warning(f"⚠️ 조회 중 오류 발생: {e}")
             else:
                 st.info("아직 저장된 URL 정보가 없습니다.")
+
                 
             st.subheader("📊 악성 vs 정상 사이트 분석 대시보드")
             visualize_tag_pie_and_entropy(dftd)
@@ -392,5 +562,17 @@ def main():
         else:
             st.info("뉴스를 불러오지 못했습니다.")
 
+def main():
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'page' not in st.session_state:
+        st.session_state.page = "login"
+
+    if st.session_state.logged_in and st.session_state.page == "main":
+        main_page()
+    else:
+        login_page()
+
 if __name__ == "__main__":
     main()
+#asdf
