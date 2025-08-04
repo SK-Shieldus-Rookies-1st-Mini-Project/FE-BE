@@ -214,8 +214,9 @@ def visualize_tag_pie_and_entropy(df):
     try:
         df_temp = df.copy()
         df_temp.columns = df_temp.columns.str.replace("html_num_tags\\('", "", regex=True).str.replace("'\\)", "", regex=True)
-
-        st.image("data/URL Entropy Distribution by Class.png", use_column_width=True)
+        left, center, right = st.columns([2, 4, 2])
+        with center:
+            st.image("data/URL Entropy Distribution by Class.png", use_column_width=True)
 
         st.markdown(f'🧪 URL 엔트로피란? ')
         st.markdown('url 문자열이 얼마나 무작위적인지 나타내는 값입니다. 피싱 사이트의 URL은 무작위적인 문자와 숫자로 구성되어 엔트로피값이 높게 나타나는 경향이 있습니다.')
@@ -229,12 +230,17 @@ def visualize_tag_pie_and_entropy(df):
         malicious_df_tags = df_temp[df_temp['repu'] == 'malicious']
         benign_df_tags = df_temp[df_temp['repu'] == 'benign']
 
+
+
+        # sum 먼저, 변환은 그 다음에!
         malicious_tag_counts = malicious_df_tags[tags_to_compare].sum()
         benign_tag_counts = benign_df_tags[tags_to_compare].sum()
-
-        # 기타 태그
-        malicious_others_count = malicious_df_tags.drop(columns=['repu']).sum().sum() - malicious_tag_counts.sum()
-        benign_others_count = benign_df_tags.drop(columns=['repu']).sum().sum() - benign_tag_counts.sum()
+        malicious_tag_counts = pd.to_numeric(malicious_tag_counts, errors='coerce').fillna(0)
+        benign_tag_counts = pd.to_numeric(benign_tag_counts, errors='coerce').fillna(0)
+        malicious_df_tags_numeric = malicious_df_tags.drop(columns=['repu']).apply(pd.to_numeric, errors='coerce').fillna(0)
+        benign_df_tags_numeric = benign_df_tags.drop(columns=['repu']).apply(pd.to_numeric, errors='coerce').fillna(0)
+        malicious_others_count = malicious_df_tags_numeric.sum().sum() - malicious_tag_counts.sum()
+        benign_others_count = benign_df_tags_numeric.sum().sum() - benign_tag_counts.sum()
 
         malicious_final_counts = malicious_tag_counts.to_dict()
         malicious_final_counts['Others'] = malicious_others_count
@@ -348,7 +354,7 @@ def draw_radar_chart(user_url, features):
         ax.set_xticklabels(labels, fontsize=9)
         ax.set_title('입력 URL vs 정상/악성 평균 Feature 비교', size=15)
         ax.legend(loc='upper right')
-
+        
         st.pyplot(fig)
 
         st.markdown(
@@ -399,9 +405,11 @@ def compare_benign_malicious_chart(train_csv_path, features):
         ax.set_xticklabels(labels, fontsize=9)
         ax.set_title('악성 평균 vs 정상 평균 Feature 비교', size=15)
         ax.legend(loc='upper right')
-        st.pyplot(fig)
+        left, center, right = st.columns([2, 4, 2])
+        with center:
+            st.pyplot(fig)
         
-        st.markdown(f'🧪 악성 사이트는 url_entropy, 도메인 길이, 호스트 길이, 도메인 토큰 길이 등의 값이 높아 전반적으로 URL이 복잡하고 무작위적인 구조를 가지는 반면, 정상 사이트는 www로 시작할 가능성이 높고, 비교적 정제된 URL 구조를 갖는 경향이 있습니다.')
+        st.markdown(f'🧪 악성 사이트는 url_entropy, 도메인 길이, 호스트 길이, 도메인 토큰 길이 등의 값이 높아 전반적으로 URL이 복잡하고 무작위적인 구조를 가지는 반면, 정상 사이트는 www로 시작할 가능성이 높고, 비교적 정제된 URL 구조를 갖는 경향이 있습니다.')   
     
     except Exception as e:
         st.error(f"차트 생성 중 오류 발생: {e}")
@@ -450,6 +458,7 @@ def url_analysis_page(train_csv, user_csv, features):
                             # 1. HTML 태그 파이차트
                             html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
                             tag_counts = matched_row.iloc[0][html_columns]
+                            tag_counts = pd.to_numeric(tag_counts, errors='coerce')  # 숫자형 변환
                             tag_counts = tag_counts[tag_counts > 0]
                                     
                             if not tag_counts.empty:
@@ -502,8 +511,8 @@ def url_analysis_page(train_csv, user_csv, features):
                             ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
                             ax2.set_title("URL에 관련된 값 비교")
                             plt.tight_layout()
+                            
                             st.pyplot(fig2)
-
                             for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
                                 st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
                             
@@ -512,7 +521,6 @@ def url_analysis_page(train_csv, user_csv, features):
                             st.markdown(" ")
                             
                             draw_radar_chart(user_url, features)
-                            compare_benign_malicious_chart(train_csv, features)
 
                         else:
                             st.info("⚠️ 입력한 URL에 대한 상세 데이터가 CSV 파일에 없습니다.")
@@ -577,10 +585,12 @@ def history_page(train_csv, user_csv, features):
 
                         if not matched_row.empty:
                             st.markdown(" ")
+                            
                             st.markdown(f"##### 🔍 HTML 태그 별 파이차트 분석")
 
                             html_columns = [col for col in matched_row.columns if "html_num_tags" in col]
                             tag_counts = matched_row.iloc[0][html_columns]
+                            tag_counts = pd.to_numeric(tag_counts, errors='coerce')  # 숫자형 변환
                             tag_counts = tag_counts[tag_counts > 0]
 
                             if not tag_counts.empty:
@@ -595,8 +605,10 @@ def history_page(train_csv, user_csv, features):
                                 ax1.legend(wedges, legend_labels, title="HTML 태그", loc="center left", bbox_to_anchor=(1, 0.5))
 
                                 ax1.set_title("HTML 태그 비율")
-                                st.pyplot(fig1)
-                                st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
+                                left, center, right = st.columns([2, 4, 2])
+                                with center:
+                                    st.pyplot(fig1)
+                                    st.markdown(f'🧭 사용자 URL의 HTML 태그 분포를 시각화하여, 악성 사이트에서 자주 사용되는 태그의 과도한 사용 여부를 분석합니다.')
                             else:
                                 st.info("해당 URL의 HTML 태그 정보가 부족합니다.")
 
@@ -620,7 +632,9 @@ def history_page(train_csv, user_csv, features):
                             ax2.set_xticklabels(ax2.get_xticklabels(), rotation=45)
                             ax2.set_title("URL에 관련된 값 비교")
                             plt.tight_layout()
-                            st.pyplot(fig2)
+                            left, center, right = st.columns([2, 4, 2])
+                            with center:
+                                st.pyplot(fig2)
 
                             for i, (col_name, col_mean) in enumerate(zip(url_columns, url_columns_mean)):
                                 st.markdown(f"**{i+1}.** **`{col_name}`** : {col_mean}")
@@ -628,8 +642,9 @@ def history_page(train_csv, user_csv, features):
                             st.markdown(" ")
                             st.markdown(f'🧪 악성 URL은 정상적인 URL과 유사하지만 미묘하게 다른 도메인명, 복잡한 경로, 특정 키워드 등을 통해 악성 여부를 판단합니다. ')
                             st.markdown(" ")
-
-                            draw_radar_chart(url, features)
+                            left, center, right = st.columns([2, 4, 2])
+                            with center:
+                                draw_radar_chart(url, features)
 
                         else:
                             st.info("⚠️ 해당 URL에 대한 데이터가 DB에 없습니다.")
