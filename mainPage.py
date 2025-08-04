@@ -354,11 +354,10 @@ def main_page():
 
     # Feature 목록
     features = [                        
-                    "url_entropy",
-                    "url_path_len", "url_filename_len", "url_longest_dom_token_len",
+                    "url_entropy","url_starts_with_www",
+                    "url_longest_dom_token_len",
                     "url_average_dom_token_len", "url_domain_len", "url_hostname_len", 
-                    "url_port",
-                    "script","div"
+                    "script","div","a","span"
                 ]
     if page == "메인":
         st.title("지키링")
